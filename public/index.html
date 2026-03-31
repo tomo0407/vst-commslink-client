@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>CommsLink</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #111827;
+      color: #e5e7eb;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100svh;
+      padding: 32px 24px;
+      gap: 18px;
+    }
+    h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.5px; }
+    .subtitle { font-size: 0.8rem; color: #6b7280; }
+    input[type="text"] {
+      width: 100%; max-width: 320px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: 1.5px solid #374151;
+      background: #1f2937;
+      color: #e5e7eb;
+      font-size: 1rem;
+      outline: none;
+    }
+    input[type="text"]:focus { border-color: #3b82f6; }
+    button {
+      width: 100%; max-width: 320px;
+      padding: 15px;
+      border-radius: 12px;
+      border: none;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #connectBtn          { background: #3b82f6; color: #fff; }
+    #connectBtn.live     { background: #ef4444; }
+    #connectBtn:disabled { background: #374151; color: #6b7280; cursor: default; }
+    .meter-wrap {
+      width: 100%; max-width: 320px;
+      height: 6px; background: #1f2937; border-radius: 3px; overflow: hidden;
+    }
+    #meter {
+      height: 100%; width: 0%;
+      background: #3b82f6; border-radius: 3px;
+      transition: width 0.05s linear;
+    }
+    #meter.peak { background: #ef4444; }
+    #statusEl {
+      font-size: 0.82rem;
+      padding: 7px 14px;
+      border-radius: 20px;
+      background: #1f2937;
+      color: #6b7280;
+    }
+    #statusEl.ok  { color: #34d399; }
+    #statusEl.err { color: #f87171; }
+  </style>
+</head>
+<body>
+  <h1>CommsLink</h1>
+  <p class="subtitle">Mic &rarr; DAW</p>
+
+  <input type="text" id="nameInput" placeholder="Your name" maxlength="32" value="Phone">
+
+  <div class="meter-wrap"><div id="meter"></div></div>
+
+  <button id="connectBtn">Connect</button>
+
+  <div id="statusEl">Disconnected</div>
+
+  <script>
+    'use strict';
+
+    // ── Config ──────────────────────────────────────────────────────────────
+    // Empty string = same origin (API routes are on this domain)
+    const SIGNALING_URL = '';
+    const SAMPLE_RATE   = 48000;
+    const FRAME_SAMPLES = 960;    // 20 ms @ 48 kHz
+    const POLL_INTERVAL = 2000;   // ms between answer polls
+    const POLL_MAX      = 30;     // give up after 30 attempts (60 s)
+    const ICE_SERVERS   = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+    // ── State ────────────────────────────────────────────────────────────────
+    let pc = null, dc = null;
+    let audioCtx = null, workletNode = null, stream = null;
+    let encoder = null, clientId = 0, seqNum = 0, tsUs = 0;
+    let live = false;
+
+    // ── DOM ──────────────────────────────────────────────────────────────────
+    const btn      = document.getElementById('connectBtn');
+    const nameIn   = document.getElementById('nameInput');
+    const statusEl = document.getElementById('statusEl');
+    const meterEl  = document.getElementById('meter');
+
+    if (!window.isSecureContext) {
+      setStatus('Requires HTTPS', 'err');
+      btn.disabled = true;
+    }
+
+    btn.addEventListener('click', () => live ? disconnect() : connect());
+
+    // ── Signaling ─────────────────────────────────────────────────────────
+    function getVstId() {
+      return new URLSearchParams(location.search).get('id');
+    }
+
+    function generateSessionId() {
+      return Array.from(crypto.getRandomValues(new Uint8Array(6)),
+        b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function waitForIceComplete(peerConn) {
+      return new Promise(resolve => {
+        if (peerConn.iceGatheringState === 'complete') { resolve(); return; }
+        const handler = () => {
+          if (peerConn.iceGatheringState === 'complete') {
+            peerConn.removeEventListener('icegatheringstatechange', handler);
+            resolve();
+          }
+        };
+        peerConn.addEventListener('icegatheringstatechange', handler);
+      });
+    }
+
+    async function pollAnswer(sessionId) {
+      for (let i = 0; i < POLL_MAX; i++) {
+        await new Promise(r => setTimeout(r, POLL_INTERVAL));
+        const res = await fetch(`${SIGNALING_URL}/api/answer/${sessionId}`);
+        if (res.ok) {
+          const body = await res.json();
+          return body.sdp;
+        }
+      }
+      throw new Error('VST not responding (timeout)');
+    }
+
+    // ── Connect ───────────────────────────────────────────────────────────
+    async function connect() {
+      const vstId = getVstId();
+      if (!vstId) { setStatus('Scan the QR code in the VST', 'err'); return; }
+
+      btn.disabled = true;
+      setStatus('Connecting...');
+
+      try {
+        const sessionId = generateSessionId();
+
+        // 1. Create PeerConnection + unreliable DataChannel for low-latency audio
+        pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        dc = pc.createDataChannel('audio', { ordered: false, maxRetransmits: 0 });
+
+        dc.onopen    = onDataChannelOpen;
+        dc.onclose   = () => { if (live) { disconnect(); setStatus('Server closed', 'err'); } };
+        dc.onmessage = e => handleServerMessage(e.data);
+
+        pc.onconnectionstatechange = () => {
+          if (pc.connectionState === 'failed') {
+            disconnect();
+            setStatus('Connection failed', 'err');
+          }
+        };
+
+        // 2. Create offer and wait for all ICE candidates (non-trickle)
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        setStatus('Gathering ICE...');
+        await waitForIceComplete(pc);
+
+        // 3. Post offer to signaling API
+        setStatus('Signaling...');
+        const postRes = await fetch(`${SIGNALING_URL}/api/offer`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            vst_id:     vstId,
+            session_id: sessionId,
+            sdp:        pc.localDescription.sdp,
+          }),
+        });
+        if (!postRes.ok) throw new Error('Signaling failed');
+
+        // 4. Request microphone and wait for VST answer in parallel
+        setStatus('Waiting for VST...');
+        const [answerSdp] = await Promise.all([
+          pollAnswer(sessionId),
+          navigator.mediaDevices.getUserMedia({
+            audio: {
+              sampleRate:       SAMPLE_RATE,
+              channelCount:     1,
+              echoCancellation: true,
+              noiseSuppression: true,
+            },
+          }).then(s => { stream = s; }),
+        ]);
+
+        // 5. Apply answer — WebRTC connection establishes
+        await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+
+      } catch (err) {
+        setStatus(err.message, 'err');
+        btn.disabled = false;
+        cleanup();
+      }
+    }
+
+    // ── DataChannel handlers ──────────────────────────────────────────────
+    function onDataChannelOpen() {
+      dc.send(JSON.stringify({
+        type:       'hello',
+        name:       nameIn.value.trim() || 'Phone',
+        sampleRate: SAMPLE_RATE,
+        channels:   1,
+      }));
+    }
+
+    function handleServerMessage(data) {
+      try {
+        const msg = JSON.parse(data);
+        if (msg.type === 'ack')   { onAck(msg.clientId); return; }
+        if (msg.type === 'error') { disconnect(); setStatus(msg.message, 'err'); }
+      } catch (_) { /* non-JSON, ignore */ }
+    }
+
+    async function onAck(id) {
+      clientId = id;
+      seqNum = 0;
+      tsUs   = 0;
+
+      try {
+        if (!window.AudioEncoder) throw new Error('AudioEncoder not supported');
+
+        encoder = new AudioEncoder({ output: sendChunk, error: console.error });
+        encoder.configure({
+          codec:            'opus',
+          sampleRate:       SAMPLE_RATE,
+          numberOfChannels: 1,
+          bitrate:          32000,
+        });
+
+        audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+        await audioCtx.audioWorklet.addModule('/worklet.js');
+
+        const src  = audioCtx.createMediaStreamSource(stream);
+        workletNode = new AudioWorkletNode(audioCtx, 'audio-capture');
+        workletNode.port.onmessage = onFrame;
+
+        // Muted gain node keeps the audio graph alive without speaker output
+        const muteGain = audioCtx.createGain();
+        muteGain.gain.value = 0;
+        src.connect(workletNode);
+        workletNode.connect(muteGain);
+        muteGain.connect(audioCtx.destination);
+
+        live = true;
+        btn.disabled    = false;
+        btn.textContent = 'Disconnect';
+        btn.className   = 'live';
+        setStatus('Streaming \u25cf', 'ok');
+
+      } catch (err) {
+        setStatus(err.message, 'err');
+        btn.disabled = false;
+        cleanup();
+      }
+    }
+
+    // ── Audio pipeline ────────────────────────────────────────────────────
+    function onFrame(e) {
+      const pcm = e.data;  // Float32Array, 960 samples
+      updateMeter(pcm);
+
+      if (!encoder || encoder.state !== 'configured') return;
+
+      const audioData = new AudioData({
+        format:           'f32',
+        sampleRate:       SAMPLE_RATE,
+        numberOfFrames:   FRAME_SAMPLES,
+        numberOfChannels: 1,
+        timestamp:        tsUs,
+        data:             pcm,
+      });
+      encoder.encode(audioData);
+      audioData.close();
+      tsUs += 20000;  // 20 ms in microseconds
+    }
+
+    function sendChunk(chunk) {
+      if (!dc || dc.readyState !== 'open') return;
+
+      const opus  = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(opus);
+
+      const frame = new Uint8Array(6 + opus.byteLength);
+      const view  = new DataView(frame.buffer);
+      view.setUint32(0, clientId, false);           // big-endian
+      view.setUint16(4, seqNum++ & 0xFFFF, false);
+      frame.set(opus, 6);
+      dc.send(frame);
+    }
+
+    // ── UI helpers ────────────────────────────────────────────────────────
+    function updateMeter(pcm) {
+      let sum = 0;
+      for (let i = 0; i < pcm.length; i++) sum += pcm[i] * pcm[i];
+      const rms = Math.sqrt(sum / pcm.length);
+      const pct = Math.min(rms * 500, 100);
+      meterEl.style.width = pct + '%';
+      meterEl.className   = pct > 85 ? 'peak' : '';
+    }
+
+    function setStatus(msg, cls) {
+      statusEl.textContent = msg;
+      statusEl.className   = cls || '';
+    }
+
+    // ── Disconnect ────────────────────────────────────────────────────────
+    function disconnect() {
+      live = false;
+      cleanup();
+      btn.textContent     = 'Connect';
+      btn.className       = '';
+      meterEl.style.width = '0%';
+      setStatus('Disconnected');
+    }
+
+    function cleanup() {
+      if (encoder)     { try { encoder.close(); }    catch (_) {} encoder = null; }
+      if (workletNode) { workletNode.disconnect(); workletNode = null; }
+      if (audioCtx)    { audioCtx.close(); audioCtx = null; }
+      if (stream)      { stream.getTracks().forEach(t => t.stop()); stream = null; }
+      if (dc)          { dc.close(); dc = null; }
+      if (pc)          { pc.close(); pc = null; }
+    }
+  </script>
+</body>
+</html>
