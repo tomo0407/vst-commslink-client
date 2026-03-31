@@ -1,4 +1,4 @@
-import { kv } from '@vercel/kv';
+import { kv } from '@/lib/redis';
 import { NextResponse } from 'next/server';
 
 /** VST posts its SDP answer so the phone can pick it up. */
