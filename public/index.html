@@ -5,100 +5,476 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>CommsLink</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #111827;
-      color: #e5e7eb;
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --panel:       #c8c8c8;
+      --panel-dark:  #ababab;
+      --panel-hi:    #e4e4e4;
+      --bevel-hi:    #f0f0f0;
+      --bevel-sh:    #787878;
+      --inset:       #0e0e0e;
+
+      --lcd-bg:      #060f06;
+      --lcd-green:   #3dea3b;
+      --lcd-glow:    rgba(61, 234, 59, 0.45);
+
+      --led-off:     #888888;
+      --led-green:   #00cc44;
+      --led-cyan:    #00ccee;
+      --led-amber:   #ff8800;
+      --glow-green:  rgba(0, 204, 68, 0.75);
+      --glow-cyan:   rgba(0, 204, 238, 0.75);
+      --glow-amber:  rgba(255, 136, 0, 0.75);
+
+      --text:        #1a1a1a;
+      --text-mid:    #4a4a4a;
+      --text-dim:    #888888;
+    }
+
+    html, body {
+      background: var(--panel-dark);
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      color: var(--text);
+      min-height: 100svh;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      min-height: 100svh;
+      max-width: 420px;
+      margin: 0 auto;
+      background: var(--panel);
+      /* Horizontal brushed-metal grain */
+      background-image: repeating-linear-gradient(
+        180deg,
+        transparent 0px, transparent 3px,
+        rgba(255,255,255,0.013) 3px, rgba(255,255,255,0.013) 4px
+      );
+    }
+
+    /* ── Header ───────────────────────────────────────────────── */
+    #header {
+      flex-shrink: 0;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      background: var(--panel-dark);
+      border-bottom: 2px solid var(--bevel-sh);
+      box-shadow: inset 0 1px 0 var(--bevel-hi);
+    }
+
+    .header-left { display: flex; flex-direction: column; gap: 2px; }
+
+    .brand {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      color: var(--text);
+      text-transform: uppercase;
+    }
+
+    .model {
+      font-size: 6.5px;
+      letter-spacing: 1.5px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    .header-right {
       display: flex;
       flex-direction: column;
       align-items: center;
+      gap: 3px;
+    }
+
+    .pwr-dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--led-amber);
+      box-shadow: 0 0 7px var(--glow-amber);
+      border: 1px solid rgba(0,0,0,0.25);
+    }
+
+    .pwr-lbl {
+      font-size: 6px;
+      letter-spacing: 0.5px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    /* ── Scope panel ──────────────────────────────────────────── */
+    #scope-panel {
+      position: relative;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 14px 14px 12px;
+      gap: 10px;
+      border-bottom: 2px solid var(--bevel-sh);
+      box-shadow: inset 0 1px 0 var(--bevel-hi), 0 2px 0 var(--bevel-hi);
+    }
+
+    /* Corner screws */
+    .screw {
+      position: absolute;
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 38% 33%, #d0d0d0, #888);
+      border: 1px solid var(--bevel-sh);
+      box-shadow: inset 0 1px 1px rgba(255,255,255,0.4);
+      z-index: 1;
+    }
+    .screw::before, .screw::after {
+      content: '';
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.4);
+      border-radius: 0.5px;
+    }
+    .screw::before { width: 5px; height: 1px; }
+    .screw::after  { width: 1px; height: 5px; }
+    .screw.tl { top: 6px;  left: 6px; }
+    .screw.tr { top: 6px;  right: 6px; }
+    .screw.bl { bottom: 6px; left: 6px; }
+    .screw.br { bottom: 6px; right: 6px; }
+
+    .panel-label {
+      font-size: 7.5px;
+      letter-spacing: 3px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    /* Scope centered; knobs float absolutely so bezel stays in the middle */
+    .scope-area {
+      position: relative;
+      flex: 1;
+      display: flex;
+      align-items: center;
       justify-content: center;
-      min-height: 100svh;
-      padding: 32px 24px;
-      gap: 18px;
+      width: 100%;
     }
-    h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.5px; }
-    .subtitle { font-size: 0.8rem; color: #6b7280; }
-    input[type="text"] {
-      width: 100%; max-width: 320px;
-      padding: 12px 16px;
-      border-radius: 12px;
-      border: 1.5px solid #374151;
-      background: #1f2937;
-      color: #e5e7eb;
-      font-size: 1rem;
-      outline: none;
+
+    /* Circular oscilloscope */
+    .scope-bezel {
+      padding: 7px;
+      background: var(--panel-dark);
+      border-radius: 50%;
+      box-shadow:
+        inset 1px 1px 0 var(--bevel-sh),
+        inset -1px -1px 0 var(--bevel-hi),
+        inset 2px 2px 8px rgba(0,0,0,0.35);
+      border: 1px solid var(--bevel-sh);
     }
-    input[type="text"]:focus { border-color: #3b82f6; }
-    button {
-      width: 100%; max-width: 320px;
-      padding: 15px;
-      border-radius: 12px;
-      border: none;
-      font-size: 1rem;
+
+    /* Wrapper that holds both the bezel and the SVG decoration overlay */
+    .scope-wrap {
+      position: relative;
+      width: 300px;
+      height: 300px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    /* SVG decoration layer — sits behind the bezel, pointer-events off */
+    .scope-deco {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .scope-screen {
+      position: relative;
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      overflow: hidden;
+      background: var(--lcd-bg);
+      box-shadow:
+        0 0 28px var(--lcd-glow),
+        0 0 8px rgba(61,234,59,0.2),
+        inset 0 0 16px rgba(0,0,0,0.65);
+      z-index: 1;
+    }
+
+    #scope-canvas {
+      display: block;
+      width: 220px;
+      height: 220px;
+    }
+
+    /* CRT scanlines */
+    .scope-scanlines {
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        180deg,
+        rgba(0,0,0,0.14) 0px, rgba(0,0,0,0.14) 1px,
+        transparent 1px, transparent 3px
+      );
+      pointer-events: none;
+    }
+
+    .scope-vignette {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: radial-gradient(circle at center,
+        transparent 55%, rgba(0,0,0,0.6) 100%
+      );
+      pointer-events: none;
+    }
+
+    .deco-knob::after {
+      content: '';
+      position: absolute;
+      width: 2px; height: 8px;
+      background: var(--text-dim);
+      top: 4px; left: 50%;
+      transform: translateX(-50%);
+      border-radius: 1px;
+    }
+
+    /* LED row */
+    .led-row {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+
+    .led-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--led-off);
+      border: 1px solid var(--bevel-sh);
+      box-shadow: inset 0 1px 1px rgba(0,0,0,0.3);
+    }
+
+    .dot.amber { background: var(--led-amber); box-shadow: 0 0 7px var(--glow-amber); }
+    .dot.signal { background: var(--led-green); border-color: #00aa33; }
+
+    @keyframes tx-blink {
+      0%, 55%  { opacity: 1;   background: var(--led-cyan); box-shadow: 0 0 8px var(--glow-cyan); }
+      65%, 100%{ opacity: 0.1; background: var(--led-cyan); box-shadow: none; }
+    }
+    .dot.tx-active { animation: tx-blink 1.1s ease-in-out infinite; }
+
+    .dot-lbl {
+      font-size: 7px;
+      letter-spacing: 1px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    /* ── Control panel ────────────────────────────────────────── */
+    #ctrl-panel {
+      flex-shrink: 0;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      padding: 18px 18px 22px;
+      gap: 10px;
+    }
+
+    .field-label {
+      font-size: 7.5px;
+      letter-spacing: 2.5px;
+      color: var(--text-dim);
+      text-transform: uppercase;
       font-weight: 600;
+    }
+
+    input[type="text"] {
+      padding: 10px 12px;
+      background: var(--inset);
+      color: var(--lcd-green);
+      border: 1px solid var(--bevel-sh);
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      letter-spacing: 1px;
+      outline: none;
+      box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5);
+      -webkit-user-select: text;
+      user-select: text;
+    }
+
+    input[type="text"]::placeholder {
+      color: rgba(61, 234, 59, 0.3);
+    }
+
+    input[type="text"]:focus {
+      box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5), 0 0 0 1px var(--lcd-green);
+    }
+
+    #connectBtn {
+      height: 54px;
+      border: 1.5px solid var(--bevel-sh);
+      border-radius: 4px;
+      background: var(--panel);
+      color: var(--text);
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      font-weight: bold;
+      letter-spacing: 5px;
+      text-transform: uppercase;
       cursor: pointer;
+      box-shadow:
+        inset 2px 2px 0 var(--bevel-hi),
+        inset -2px -2px 0 var(--bevel-sh);
+      transition: background 0.1s;
     }
-    #connectBtn          { background: #3b82f6; color: #fff; }
-    #connectBtn.live     { background: #ef4444; }
-    #connectBtn:disabled { background: #374151; color: #6b7280; cursor: default; }
-    .meter-wrap {
-      width: 100%; max-width: 320px;
-      height: 6px; background: #1f2937; border-radius: 3px; overflow: hidden;
+
+    #connectBtn:active {
+      box-shadow:
+        inset 2px 2px 0 var(--bevel-sh),
+        inset -2px -2px 0 var(--bevel-hi);
     }
-    #meter {
-      height: 100%; width: 0%;
-      background: #3b82f6; border-radius: 3px;
-      transition: width 0.05s linear;
+
+    #connectBtn.live {
+      background: #c87878;
+      color: #3a0000;
+      box-shadow:
+        inset 2px 2px 0 var(--bevel-sh),
+        inset -2px -2px 0 var(--bevel-hi);
     }
-    #meter.peak { background: #ef4444; }
+
+    #connectBtn:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
     #statusEl {
-      font-size: 0.82rem;
-      padding: 7px 14px;
-      border-radius: 20px;
-      background: #1f2937;
-      color: #6b7280;
+      align-self: center;
+      padding: 5px 14px;
+      background: var(--inset);
+      color: var(--lcd-green);
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      border-radius: 3px;
+      border: 1px solid #333;
+      box-shadow: inset 1px 1px 3px rgba(0,0,0,0.4);
+      min-width: 180px;
+      text-align: center;
     }
-    #statusEl.ok  { color: #34d399; }
-    #statusEl.err { color: #f87171; }
+
+    #statusEl.err { color: #ff5555; }
   </style>
 </head>
 <body>
-  <h1>CommsLink</h1>
-  <p class="subtitle">Mic &rarr; DAW</p>
+  <div id="app">
 
-  <input type="text" id="nameInput" placeholder="Your name" maxlength="32" value="Phone">
+    <!-- ── Header ── -->
+    <div id="header">
+      <div class="header-left">
+        <span class="brand">COMMSLINK</span>
+        <span class="model">FIELD UNIT &middot; TX-01</span>
+      </div>
+      <div class="header-right">
+        <div class="pwr-dot"></div>
+        <span class="pwr-lbl">PWR</span>
+      </div>
+    </div>
 
-  <div class="meter-wrap"><div id="meter"></div></div>
+    <!-- ── Scope panel ── -->
+    <div id="scope-panel">
+      <div class="screw tl"></div>
+      <div class="screw tr"></div>
+      <div class="screw bl"></div>
+      <div class="screw br"></div>
 
-  <button id="connectBtn">Connect</button>
+      <div class="panel-label">AUDIO TRANSMIT &bull; SCOPE MONITOR</div>
 
-  <div id="statusEl">Disconnected</div>
+      <div class="scope-area">
+        <div class="scope-wrap">
+          <!-- SF/mechanical decoration ring (populated by JS) -->
+          <svg id="scope-deco" class="scope-deco"
+               viewBox="-150 -150 300 300"
+               xmlns="http://www.w3.org/2000/svg"></svg>
+
+          <div class="scope-bezel">
+            <div class="scope-screen">
+              <canvas id="scope-canvas"></canvas>
+              <div class="scope-scanlines"></div>
+              <div class="scope-vignette"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="led-row">
+        <div class="led-group">
+          <div class="dot" id="led-sig"></div>
+          <span class="dot-lbl">SIG</span>
+        </div>
+        <div class="led-group">
+          <div class="dot" id="led-tx"></div>
+          <span class="dot-lbl">TX</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Control panel ── -->
+    <div id="ctrl-panel">
+      <div class="screw tl"></div>
+      <div class="screw tr"></div>
+
+      <div class="field-label">Operator ID</div>
+      <input type="text" id="nameInput" placeholder="ENTER CALLSIGN"
+             maxlength="32" value="Phone" autocomplete="off">
+
+      <button id="connectBtn">Connect</button>
+
+      <div id="statusEl">&#9632; OFFLINE</div>
+    </div>
+
+  </div>
 
   <script>
     'use strict';
 
-    // ── Config ──────────────────────────────────────────────────────────────
-    // Empty string = same origin (API routes are on this domain)
-    const SIGNALING_URL = '';
-    const SAMPLE_RATE   = 48000;
-    const FRAME_SAMPLES = 960;    // 20 ms @ 48 kHz
-    const POLL_INTERVAL = 2000;   // ms between answer polls
-    const POLL_MAX      = 30;     // give up after 30 attempts (60 s)
-    const ICE_SERVERS   = [{ urls: 'stun:stun.l.google.com:19302' }];
+    // ── Config ────────────────────────────────────────────────────────
+    const SIGNALING_URL  = '';
+    const SAMPLE_RATE    = 48000;
+    const FRAME_SAMPLES  = 960;
+    const POLL_INTERVAL  = 2000;
+    const POLL_MAX       = 30;
+    const ICE_SERVERS    = [{ urls: 'stun:stun.l.google.com:19302' }];
 
-    // ── State ────────────────────────────────────────────────────────────────
+    // ── State ─────────────────────────────────────────────────────────
     let pc = null, dc = null;
     let audioCtx = null, workletNode = null, stream = null;
     let encoder = null, clientId = 0, seqNum = 0, tsUs = 0;
     let live = false;
 
-    // ── DOM ──────────────────────────────────────────────────────────────────
+    // ── DOM ───────────────────────────────────────────────────────────
     const btn      = document.getElementById('connectBtn');
     const nameIn   = document.getElementById('nameInput');
     const statusEl = document.getElementById('statusEl');
-    const meterEl  = document.getElementById('meter');
+    const ledSig   = document.getElementById('led-sig');
+    const ledTx    = document.getElementById('led-tx');
 
     if (!window.isSecureContext) {
       setStatus('Requires HTTPS', 'err');
@@ -107,7 +483,128 @@
 
     btn.addEventListener('click', () => live ? disconnect() : connect());
 
-    // ── Signaling ─────────────────────────────────────────────────────────
+    // ── Oscilloscope ──────────────────────────────────────────────────
+    const WAVE_SAMPLES = 480;
+    const waveBuffer   = new Float32Array(WAVE_SAMPLES); // zeros = flat line
+    let sigLevel = 0;
+    const SIG_DECAY = 0.88; // per 20 ms frame
+
+    const scopeCanvas = document.getElementById('scope-canvas');
+    const scopeScreen = scopeCanvas.parentElement;
+    const scopeDpr    = Math.min(window.devicePixelRatio || 1, 2);
+    const scopeSize   = scopeScreen.offsetWidth || 220;
+
+    scopeCanvas.width  = scopeSize * scopeDpr;
+    scopeCanvas.height = scopeSize * scopeDpr;
+    const scopeCtx = scopeCanvas.getContext('2d');
+    scopeCtx.scale(scopeDpr, scopeDpr);
+
+    (function drawScope() {
+      requestAnimationFrame(drawScope);
+
+      const ctx = scopeCtx;
+      const S   = scopeSize;
+      const cx  = S / 2;
+      const cy  = S / 2;
+      const r   = cx - 1;
+
+      ctx.clearRect(0, 0, S, S);
+
+      // Background
+      ctx.fillStyle = '#060f06';
+      ctx.fillRect(0, 0, S, S);
+
+      // Dim grid — crosshair + concentric rings
+      ctx.strokeStyle = 'rgba(61,234,59,0.16)';
+      ctx.lineWidth   = 0.5;
+      ctx.shadowBlur  = 0;
+
+      ctx.beginPath();
+      ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy);
+      ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy + r);
+      ctx.stroke();
+
+      [0.33, 0.66].forEach(f => {
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * f, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+
+      // Waveform
+      ctx.strokeStyle = '#3dea3b';
+      ctx.lineWidth   = 1.8;
+      ctx.shadowColor = '#3dea3b';
+      ctx.shadowBlur  = live ? 8 : 4;  // idle: faint glow on flat line
+      ctx.lineJoin    = 'round';
+      ctx.lineCap     = 'round';
+
+      ctx.beginPath();
+      for (let i = 0; i < WAVE_SAMPLES; i++) {
+        const x = cx - r + (i / (WAVE_SAMPLES - 1)) * 2 * r;
+        const y = cy - waveBuffer[i] * r * 0.8;
+        if (i === 0) ctx.moveTo(x, y);
+        else         ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    })();
+
+    // ── Scope decoration (SVG ring, ticks, pointers) ──────────────────
+    (function buildScopeDeco() {
+      const svg = document.getElementById('scope-deco');
+      const NS  = 'http://www.w3.org/2000/svg';
+
+      // SVG coordinate system: viewBox="-150 -150 300 300" (0,0 = center)
+      const R_ARC = 134;  // arc radius (gap from scope edge ~110px: 24px clearance)
+      const GAP   = 18;   // degrees gap around each cardinal point
+
+      const mk = (tag, attrs) => {
+        const e = document.createElementNS(NS, tag);
+        Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
+        return e;
+      };
+
+      const arcD = (r, a1, a2) => {
+        const x1 = r * Math.cos((a1 - 90) * Math.PI / 180);
+        const y1 = r * Math.sin((a1 - 90) * Math.PI / 180);
+        const x2 = r * Math.cos((a2 - 90) * Math.PI / 180);
+        const y2 = r * Math.sin((a2 - 90) * Math.PI / 180);
+        return `M${x1},${y1} A${r},${r} 0 0 1 ${x2},${y2}`;
+      };
+
+      // 4 corner arc segments, gray, gaps at 0°/90°/180°/270°
+      [[GAP, 90-GAP], [90+GAP, 180-GAP], [180+GAP, 270-GAP], [270+GAP, 360-GAP]]
+        .forEach(([a, b]) => svg.appendChild(mk('path', {
+          d: arcD(R_ARC, a, b),
+          fill: 'none',
+          stroke: 'rgba(100,100,100,0.75)',
+          'stroke-width': '1.5',
+          'stroke-linecap': 'round',
+        })));
+    })();
+
+    // ── Signal level → SIG LED ────────────────────────────────────────
+    function updateSigLed(rms) {
+      sigLevel = Math.max(rms, sigLevel * SIG_DECAY);
+      const boosted    = Math.min(1.0, sigLevel * 10);
+      const brightness = Math.sqrt(boosted);
+
+      if (brightness < 0.05) {
+        ledSig.className    = 'dot';
+        ledSig.style.opacity   = '';
+        ledSig.style.boxShadow = '';
+        return;
+      }
+
+      const opacity    = (0.25 + brightness * 0.75).toFixed(3);
+      const glowPx     = (brightness * 10).toFixed(1);
+      const glowAlpha  = (brightness * 0.9).toFixed(2);
+
+      ledSig.className       = 'dot signal';
+      ledSig.style.opacity   = opacity;
+      ledSig.style.boxShadow = `0 0 ${glowPx}px rgba(0,204,68,${glowAlpha})`;
+    }
+
+    // ── Signaling ─────────────────────────────────────────────────────
     function getVstId() {
       return new URLSearchParams(location.search).get('id');
     }
@@ -142,7 +639,7 @@
       throw new Error('VST not responding (timeout)');
     }
 
-    // ── Connect ───────────────────────────────────────────────────────────
+    // ── Connect ───────────────────────────────────────────────────────
     async function connect() {
       const vstId = getVstId();
       if (!vstId) { setStatus('Scan the QR code in the VST', 'err'); return; }
@@ -153,7 +650,6 @@
       try {
         const sessionId = generateSessionId();
 
-        // 1. Create PeerConnection + unreliable DataChannel for low-latency audio
         pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
         dc = pc.createDataChannel('audio', { ordered: false, maxRetransmits: 0 });
 
@@ -168,13 +664,11 @@
           }
         };
 
-        // 2. Create offer and wait for all ICE candidates (non-trickle)
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         setStatus('Gathering ICE...');
         await waitForIceComplete(pc);
 
-        // 3. Post offer to signaling API
         setStatus('Signaling...');
         const postRes = await fetch(`${SIGNALING_URL}/api/offer`, {
           method:  'POST',
@@ -187,7 +681,6 @@
         });
         if (!postRes.ok) throw new Error('Signaling failed');
 
-        // 4. Request microphone and wait for VST answer in parallel
         setStatus('Waiting for VST...');
         const [answerSdp] = await Promise.all([
           pollAnswer(sessionId),
@@ -201,7 +694,6 @@
           }).then(s => { stream = s; }),
         ]);
 
-        // 5. Apply answer — WebRTC connection establishes
         await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
 
       } catch (err) {
@@ -211,7 +703,7 @@
       }
     }
 
-    // ── DataChannel handlers ──────────────────────────────────────────────
+    // ── DataChannel handlers ──────────────────────────────────────────
     function onDataChannelOpen() {
       dc.send(JSON.stringify({
         type:       'hello',
@@ -252,7 +744,6 @@
         workletNode = new AudioWorkletNode(audioCtx, 'audio-capture');
         workletNode.port.onmessage = onFrame;
 
-        // Muted gain node keeps the audio graph alive without speaker output
         const muteGain = audioCtx.createGain();
         muteGain.gain.value = 0;
         src.connect(workletNode);
@@ -263,7 +754,8 @@
         btn.disabled    = false;
         btn.textContent = 'Disconnect';
         btn.className   = 'live';
-        setStatus('Streaming \u25cf', 'ok');
+        ledTx.className = 'dot tx-active';
+        setStatus('\u25CF  TRANSMITTING');
 
       } catch (err) {
         setStatus(err.message, 'err');
@@ -272,10 +764,19 @@
       }
     }
 
-    // ── Audio pipeline ────────────────────────────────────────────────────
+    // ── Audio pipeline ────────────────────────────────────────────────
     function onFrame(e) {
-      const pcm = e.data;  // Float32Array, 960 samples
-      updateMeter(pcm);
+      const pcm = e.data; // Float32Array, 960 samples
+
+      // Downsample PCM to waveform buffer
+      for (let i = 0; i < WAVE_SAMPLES; i++) {
+        waveBuffer[i] = pcm[Math.floor(i * pcm.length / WAVE_SAMPLES)];
+      }
+
+      // RMS → SIG LED
+      let sum = 0;
+      for (let i = 0; i < pcm.length; i++) sum += pcm[i] * pcm[i];
+      updateSigLed(Math.sqrt(sum / pcm.length));
 
       if (!encoder || encoder.state !== 'configured') return;
 
@@ -289,46 +790,40 @@
       });
       encoder.encode(audioData);
       audioData.close();
-      tsUs += 20000;  // 20 ms in microseconds
+      tsUs += 20000;
     }
 
     function sendChunk(chunk) {
       if (!dc || dc.readyState !== 'open') return;
-
       const opus  = new Uint8Array(chunk.byteLength);
       chunk.copyTo(opus);
-
       const frame = new Uint8Array(6 + opus.byteLength);
       const view  = new DataView(frame.buffer);
-      view.setUint32(0, clientId, false);           // big-endian
+      view.setUint32(0, clientId, false);
       view.setUint16(4, seqNum++ & 0xFFFF, false);
       frame.set(opus, 6);
       dc.send(frame);
     }
 
-    // ── UI helpers ────────────────────────────────────────────────────────
-    function updateMeter(pcm) {
-      let sum = 0;
-      for (let i = 0; i < pcm.length; i++) sum += pcm[i] * pcm[i];
-      const rms = Math.sqrt(sum / pcm.length);
-      const pct = Math.min(rms * 500, 100);
-      meterEl.style.width = pct + '%';
-      meterEl.className   = pct > 85 ? 'peak' : '';
-    }
-
+    // ── UI helpers ────────────────────────────────────────────────────
     function setStatus(msg, cls) {
       statusEl.textContent = msg;
       statusEl.className   = cls || '';
     }
 
-    // ── Disconnect ────────────────────────────────────────────────────────
+    // ── Disconnect ────────────────────────────────────────────────────
     function disconnect() {
       live = false;
+      waveBuffer.fill(0);
+      sigLevel = 0;
+      ledSig.className    = 'dot';
+      ledSig.style.opacity   = '';
+      ledSig.style.boxShadow = '';
+      ledTx.className     = 'dot';
       cleanup();
-      btn.textContent     = 'Connect';
-      btn.className       = '';
-      meterEl.style.width = '0%';
-      setStatus('Disconnected');
+      btn.textContent = 'Connect';
+      btn.className   = '';
+      setStatus('\u25A0 OFFLINE');
     }
 
     function cleanup() {
