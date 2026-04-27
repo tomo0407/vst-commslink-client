@@ -468,6 +468,24 @@
     let audioCtx = null, workletNode = null, stream = null;
     let encoder = null, clientId = 0, seqNum = 0, tsUs = 0;
     let live = false;
+    let wakeLock = null;
+
+    // ── Wake Lock ─────────────────────────────────────────────────────
+    async function requestWakeLock() {
+      if (!navigator.wakeLock) return;
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      } catch (_) {}
+    }
+
+    function releaseWakeLock() {
+      if (wakeLock) { wakeLock.release(); wakeLock = null; }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (live && document.visibilityState === 'visible') requestWakeLock();
+    });
 
     // ── DOM ───────────────────────────────────────────────────────────
     const btn      = document.getElementById('connectBtn');
@@ -751,6 +769,7 @@
         muteGain.connect(audioCtx.destination);
 
         live = true;
+        requestWakeLock();
         btn.disabled    = false;
         btn.textContent = 'Disconnect';
         btn.className   = 'live';
@@ -814,6 +833,7 @@
     // ── Disconnect ────────────────────────────────────────────────────
     function disconnect() {
       live = false;
+      releaseWakeLock();
       waveBuffer.fill(0);
       sigLevel = 0;
       ledSig.className    = 'dot';
